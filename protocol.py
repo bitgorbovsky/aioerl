@@ -1,11 +1,19 @@
 # coding: utf-8
 
+import re
 import asyncio
 
 from bitstring import ConstBitStream
 
-from request import Alive2Request, NamesRequest
+from request import Alive2Request, NamesRequest, EmptyEPMDRequest
 from response import UnknownEPMDResponse, Alive2Response
+
+match_node_info = re.compile('^name (\w+) at port (\d+)$')
+
+
+def parse_node_info(info):
+    name, port = match_node_info.match(info.decode('utf-8')).groups()
+    return (name, int(port))
 
 
 class EPMDProtocol(asyncio.Protocol):
@@ -22,24 +30,34 @@ class EPMDProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self._transport = transport
-        self.send_epmd_request(Alive2Request(port_no=self.node_port))
+        self.register()
 
     def data_received(self, data):
-        if self.state == self.INIT:
-            response = self._unpack_epmd_resp(data)
-            if response.success:
-                print('Registering in EPMD success!')
-                #self.send_epmd_request(NamesRequest())
-                #self.state = self.WAIT_FOR_NAMES
-        elif self.state == self.WAIT_FOR_NAMES:
-            print(data)
+        response = self._unpack_epmd_resp(data)
+
+    def eof_received(self):
+        return True
 
     def connection_lost(self, exc):
-        print('Connection to EPMD closed')
         self.loop.stop()
+
+    def register(self):
+        self.state = self.SENT_REG
+        self.send_epmd_request(Alive2Request(port_no=self.node_port))
+
+    def get_names(self):
+        self.state = self.WAIT_FOR_NAMES
+        self.send_epmd_request(NamesRequest())
 
     def _unpack_epmd_resp(self, data):
         buf = ConstBitStream(data)
+        if self.state == self.WAIT_FOR_NAMES:
+            portno = buf.read('uint:32')
+            nodes = []
+            for nodeinfo in buf.bytes[4:].split(b'\n'):
+                if nodeinfo:
+                    nodes.append(parse_node_info(nodeinfo))
+            print(nodes)
         ptype = buf.read('uint:8')
         if ptype == 121:
             success = buf.read('uint:8')
@@ -49,5 +67,5 @@ class EPMDProtocol(asyncio.Protocol):
             return UnknownEPMDResponse(data)
 
     def send_epmd_request(self, request):
-        print('sending request...')
-        self._transport.write(request.encode())
+        data = request.encode()
+        self._transport.write(data)

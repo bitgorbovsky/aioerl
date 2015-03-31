@@ -30,6 +30,15 @@ class EPMDRequest:
                                   "implemented!")
 
 
+class EmptyEPMDRequest(EPMDRequest):
+
+    def _get_raw_data(self):
+        pass
+
+    def encode(self):
+        return b'\x00'
+
+
 class Alive2Request(EPMDRequest):
 
     def __init__(self, port_no,
