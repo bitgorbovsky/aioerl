@@ -46,7 +46,7 @@ class Alive2Request(EPMDRequest):
                        protocol=TCP_PROTOCOL,
                        high_ver=HIGHEST_VERSION,
                        low_ver=LOWEST_VERSION,
-                       node_name='pynode',
+                       node_name='bit',
                        extra=None):
         self.port_no = port_no
         self.node_type = node_type

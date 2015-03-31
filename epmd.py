@@ -19,7 +19,7 @@ res = loop.run_until_complete(conn.register())
 print(res)
 
 res = loop.run_until_complete(conn.get_names())
-print(res)
+#print(res)
 
 
 

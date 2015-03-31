@@ -111,7 +111,6 @@ class EPMDProtocol(asyncio.Protocol):
     def send_epmd_request(self, request):
         data = request.encode()
         self._transport.write(data)
-        self._transport.write_eof()
 
 
 @asyncio.coroutine
