@@ -1,7 +1,20 @@
 # coding: utf-8
 
-
 from bitstring import Bits, BitArray, ConstBitStream
+
+
+__all__ = [
+    "TCP_PROTOCOL",
+    "IP_V4",
+    "NORMAL_ERL_NODE",
+    "HIDDEN_NODE",
+    "HIGHEST_VERSION",
+    "LOWEST_VERSION",
+    "EPMDRequest",
+    "Alive2Request",
+    "NamesRequest",
+    "PortRequest"
+]
 
 
 TCP_PROTOCOL = 0
@@ -111,4 +124,8 @@ class PortRequest(EPMDRequest):
         self._nodename = nodename
 
     def _get_raw_data(self):
-        pass
+        buf = BitArray(Bits(uint=122, length=8))
+        node_name_encoded = self._nodename.encode()
+        nlen = len(node_name_encoded)
+        buf.append(Bits(bytes=node_name_encoded, length=8 * nlen))
+        return buf
