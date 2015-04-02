@@ -24,14 +24,14 @@ def parse_node_info(info):
     return NodeInfo(name, int(port))
 
 
-class EPMDProtocol(asyncio.Protocol):
+class EPMDClient(asyncio.Protocol):
 
     ERROR = -1
     INIT = 1
     SENT_REG = 2
     WAIT_FOR_NAMES = 3
 
-    def __init__(self, node_port, loop):
+    def __init__(self, nodeinfo, loop):
         self._loop = loop
         self._state = self.INIT
         self._node_port = node_port
@@ -114,7 +114,83 @@ class EPMDProtocol(asyncio.Protocol):
 
 
 @asyncio.coroutine
-def connect(loop, epmd_host, epmd_port, node_info):
-    epmd = EPMDProtocol(node_info.port, loop)
+def connect(loop, epmd_host, epmd_port, nodeinfo):
+    epmd = EPMDClient(nodeinfo, loop)
     yield from loop.create_connection(lambda: epmd, epmd_host, epmd_port)
     return epmd
+
+
+####
+
+
+class EPMDClient:
+
+    def __init__(self, epmd_host, epmd_port, loop):
+        self._epmd_host = epmd_host
+        self._epmd_port = epmd_port
+        self._loop = loop
+
+        self._alive2_connect = None
+
+    @asyncio.coroutine
+    def __make_conn(self):
+        reader, writer = yield from asyncio.open_connection(
+            self._epmd_host, self._epmd_port, loop=self._loop
+        )
+        return reader, writer
+
+    @asyncio.coroutine
+    def register(self, nodeinfo):
+        # don't close connetion in this method because EPMD daemon
+        # tracks this connection for leep alive status.
+        reader, writer = yield from self.__make_conn()
+
+        writer.write(Alive2Request(
+            port_no=nodeinfo.port,
+            node_name=nodeinfo.name
+        ).encode())
+
+        data = yield from reader.read(Alive2Request.expected_response_len)
+        result = Alive2Response.decode(data)
+        if result and result.success:
+            self._alive2_connect = (reader, writer)
+            return True
+        return False
+
+    @asyncio.coroutine
+    def names(self):
+        reader, writer = yield from self.__make_conn()
+        writer.write(NamesRequest().encode())
+
+        data = b''
+        while reader.at_eof():
+            data += (yield from reader.read(100))
+
+        writer.close()
+
+        if not data:
+            return False
+
+        buff = ConstBitStream(data)
+        port_no = buf.read('uint:32')
+        nodes = []
+        for nodeinfo in buf.bytes[4:].split(b'\n'):
+            if nodeinfo:
+                nodes.append(parse_node_info(nodeinfo))
+        return nodes
+
+    @asyncio.coroutine
+    def distribution_port(self, node_name):
+        return
+
+    @asyncio.coroutine
+    def kill(self):
+        return
+
+    @asyncio.coroutine
+    def stop(self):
+        return
+
+    @asyncio.coroutine
+    def dump(self):
+        return

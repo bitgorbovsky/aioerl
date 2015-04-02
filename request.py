@@ -41,6 +41,8 @@ class EmptyEPMDRequest(EPMDRequest):
 
 class Alive2Request(EPMDRequest):
 
+    expected_response_len = 4
+
     def __init__(self, port_no,
                        node_type=NORMAL_ERL_NODE,
                        protocol=TCP_PROTOCOL,
@@ -101,3 +103,12 @@ class NamesRequest(EPMDRequest):
 
     def _get_raw_data(self):
         return BitArray(Bits(uint=110, length=8))
+
+
+class PortRequest(EPMDRequest):
+
+    def __init__(self, nodename):
+        self._nodename = nodename
+
+    def _get_raw_data(self):
+        pass

@@ -17,6 +17,15 @@ class Alive2Response(EPMDresponse):
         self.success = success
         self.creation = creation
 
+    @classmethod
+    def decode(cls, data):
+        buf = ConstBitStream(data)
+        ptype = buf.read('uint:8')
+        if ptype == 121:
+            success = buf.read('uint:8')
+            creation = buf.read('bytes:2')
+            return Alive2Response(data, success == 0, creation)
+
 
 class UnknownEPMDResponse(EPMDresponse):
     pass
