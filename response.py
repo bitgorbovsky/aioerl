@@ -1,7 +1,11 @@
 # coding: utf-8
 
 
-from bitstring import Bits, BitArray, ConstBitStream
+from struct import pack, unpack, unpack_from, calcsize
+
+
+ALIVE2_RESP = 121
+PORT2_RESP = 119
 
 
 class EPMDresponse:
@@ -19,13 +23,11 @@ class Alive2Response(EPMDresponse):
 
     @classmethod
     def decode(cls, data):
-        buf = ConstBitStream(data)
-        ptype = buf.read('uint:8')
-        if ptype != 121:
+        RES_TYPE, = unpack('>B', data[:1])
+        if RES_TYPE != ALIVE2_RESP:
             return
 
-        success = buf.read('uint:8')
-        creation = buf.read('bytes:2')
+        success, creation = unpack('>B2s', data[1:])
         return Alive2Response(data, success == 0, creation)
 
 
@@ -44,27 +46,38 @@ class PortResponse(EPMDresponse):
         self.low_ver = low_ver
         self.node_name = node_name
         self.extra = extra
+        self.protocol = protocol
 
     @classmethod
     def decode(cls, data):
-        buf = ConstBitStream(data)
-        ptype = buf.read('uint:8')
-        if ptype != 119:
+        RES_TYPE, status = unpack('>BB', data[:2])
+        if RES_TYPE != PORT2_RESP or status > 0:
             return
 
-        status = buf.read('uint:8')
-        if status > 0:
-            return
+        pack_fmt = '>HBBHHH'
 
-        port_no = buf.read('uint:16')
-        node_type = buf.read('uint:8')
-        protocol = buf.read('uint:8')
-        high_ver = buf.read('uint:16')
-        low_ver = buf.read('uint:16')
-        nlen = buf.read('uint:16')
-        node_name = buf.read('bytes:%d' % nlen).decode('utf-8')
-        elen = buf.read('uint:16')
-        extra = buf.read('bytes:%d' % elen)
+        port_no, node_type, protocol, high_ver, low_ver, nlen = unpack_from(
+            pack_fmt,
+            data,
+            2
+        )
+
+        node_name, elen = unpack_from(
+            '>{nlen}sH'.format(nlen=nlen),
+            data,
+            calcsize(pack_fmt) + 2
+        )
+
+        node_name = node_name.decode('utf-8')
+        if elen:
+            extra = unpack_from(
+                '>{elen}s'.format(elen=elen),
+                data,
+                calcsize(pack_fmt) + 2 + nlen
+            )
+        else:
+            extra = None
+
         return cls(
             port_no=port_no,
             node_type=node_type,
