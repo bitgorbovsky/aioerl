@@ -1,10 +1,6 @@
 # coding: utf-8
 
-import re
 import asyncio
-from collections import namedtuple
-
-from bitstring import ConstBitStream
 
 from request import (
     Alive2Request,
@@ -12,21 +8,16 @@ from request import (
     EmptyEPMDRequest,
     PortRequest
     )
-from response import UnknownEPMDResponse, Alive2Response, PortResponse
+from response import (
+    UnknownEPMDResponse,
+    Alive2Response,
+    PortResponse,
+    NamesResponse,
+    NodeInfo
+    )
 
 
 __all__ = ["EPMDClient", "NodeInfo"]
-
-
-match_node_info = re.compile('^name (\w+) at port (\d+)$')
-
-
-NodeInfo = namedtuple('NodeInfo', ['name', 'port'])
-
-
-def parse_node_info(info):
-    name, port = match_node_info.match(info.decode('utf-8')).groups()
-    return NodeInfo(name, int(port))
 
 
 class EPMDClient:
@@ -84,13 +75,8 @@ class EPMDClient:
         if not data:
             return False
 
-        buff = ConstBitStream(data)
-        port_no = buff.read('uint:32')
-        nodes = []
-        for nodeinfo in buff.bytes[4:].split(b'\n'):
-            if nodeinfo:
-                nodes.append(parse_node_info(nodeinfo))
-        return nodes
+        return NamesResponse.decode(data)
+
 
     @asyncio.coroutine
     def distribution_port(self, node_name, host=None, port=None):

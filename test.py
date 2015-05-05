@@ -9,7 +9,7 @@ client = EPMDClient('localhost', 4369, loop)
 
 print(loop.run_until_complete(client.register(NodeInfo('bit', 7171))))
 
-print(loop.run_until_complete(client.names()))
+print(loop.run_until_complete(client.names()).nodes)
 print(loop.run_until_complete(client.distribution_port("kit")))
 print(loop.run_until_complete(client.distribution_port("bit")))
 

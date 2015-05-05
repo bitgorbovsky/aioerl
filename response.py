@@ -1,11 +1,23 @@
 # coding: utf-8
 
-
+import re
+from collections import namedtuple
 from struct import pack, unpack, unpack_from, calcsize
 
 
 ALIVE2_RESP = 121
 PORT2_RESP = 119
+
+
+match_node_info = re.compile('^name (\w+) at port (\d+)$')
+
+
+NodeInfo = namedtuple('NodeInfo', ['name', 'port'])
+
+
+def parse_node_info(info):
+    name, port = match_node_info.match(info.decode('utf-8')).groups()
+    return NodeInfo(name, int(port))
 
 
 class EPMDresponse:
@@ -93,6 +105,21 @@ class PortResponse(EPMDresponse):
             node=self.node_name,
             port=self.port_no
         )
+
+
+class NamesResponse(EPMDresponse):
+
+    def __init__(self, nodes):
+        self.nodes = nodes
+
+    @classmethod
+    def decode(cls, data):
+        port_non = unpack_from('>H', data, 0)
+        nodes = []
+        for nodeinfo in data[4:].split(b'\n'):
+            if nodeinfo:
+                nodes.append(parse_node_info(nodeinfo))
+        return cls(nodes)
 
 
 class UnknownEPMDResponse(EPMDresponse):
