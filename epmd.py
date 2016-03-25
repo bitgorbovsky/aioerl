@@ -1,30 +1,38 @@
 # coding: utf-8
 
+
 import asyncio
+import random
+import sys
+from struct import *
+
 
 from request import (
     Alive2Request,
     NamesRequest,
     EmptyEPMDRequest,
     PortRequest
-    )
+)
 from response import (
     UnknownEPMDResponse,
     Alive2Response,
     PortResponse,
     NamesResponse,
     NodeInfo
-    )
+)
 
 
-__all__ = ["EPMDClient", "NodeInfo"]
+__all__ = ["EPMDClient", "NodeInfo", "ErlServerProtocol"]
+
+
+random.seed()
 
 
 class EPMDClient:
 
-    def __init__(self, epmd_host, epmd_port, loop):
-        self._epmd_host = epmd_host
-        self._epmd_port = epmd_port
+    def __init__(self, host, port, loop):
+        self._host = host
+        self._port = port
         self._loop = loop
 
         self._alive2_connect = None
@@ -32,8 +40,8 @@ class EPMDClient:
     @asyncio.coroutine
     def __make_conn(self, host=None, port=None):
         reader, writer = yield from asyncio.open_connection(
-            host or self._epmd_host,
-            port or self._epmd_port,
+            host or self._host,
+            port or self._port,
             loop=self._loop
         )
         return reader, writer
@@ -48,7 +56,7 @@ class EPMDClient:
 
     @asyncio.coroutine
     def register(self, nodeinfo):
-        # don't close connetion in this method because EPMD daemon
+        # don't close connection in this method because EPMD daemon
         # tracks this connection for leep alive status.
         reader, writer = yield from self.__make_conn()
 
@@ -88,14 +96,66 @@ class EPMDClient:
 
         return PortResponse.decode(data)
 
-    @asyncio.coroutine
-    def kill(self):
-        return
 
-    @asyncio.coroutine
-    def stop(self):
-        return
+class ErlServerProtocol(asyncio.Protocol):
 
-    @asyncio.coroutine
-    def dump(self):
-        return
+    class STATE:
+        INIT = 0
+        READY = 1
+        WAIT_CHALLENGE = 2
+
+    class DISTRIBUTION_FLAGS:
+        PUBLISHED = 1
+        ATOM_CACHE = 2
+        EXTENDED_REFERENCES = 4
+        DIST_MONITOR = 8
+        FUN_TAGS = 0x10
+        DIST_MONITOR_NAME = 0x20
+        HIDDEN_ATOM_CACHE = 0x40
+        NEW_FUN_TAGS = 0x80
+        EXTENDED_PIDS_PORTS = 0x100
+        EXPORT_PTR_TAG = 0x200
+        BIT_BINARIES = 0x400
+        NEW_FLOATS = 0x800
+        UNICODE_IO = 0x1000
+        DIST_HDR_ATOM_CACHE = 0x2000
+        SMALL_ATOM_TAGS = 0x4000
+        UTF8_ATOMS = 0x10000
+        MAP_TAG = 0x20000
+
+    def connection_made(self, transport):
+        self.transport = transport
+        self.state = self.STATE.INIT
+
+    def data_received(self, packet):
+        print(packet)
+        if self.state == self.STATE.INIT:
+            size, tag, version, flags = unpack_from('>HcHI', packet)
+            node_name = packet[9:].decode()
+            self.challenge = random.randint(0, 4294967295)
+            node_name = 'tit@localhost'
+            challenge = pack(
+                '>HcHII{nlen}s'.format(nlen=len(node_name)),
+                len(node_name) + 13,  # packet header with length
+                b'n',                 # message tag 'n'
+                version,              # distribution version
+                flags,                # distribution flags
+                self.challenge,       # challenge
+                node_name.encode()    # node name
+            )
+            status = pack(
+                '>Hc{nlen}s'.format(nlen=3),
+                3,                    # packet header
+                b's',                 # message tag 's'
+                b'ok'                 # status
+            )
+            self.transport.write(status)
+            #self.transport.write(challenge)
+            self.state = self.STATE.WAIT_CHALLENGE
+        elif self.state == self.STATE.WAIT_CHALLENGE:
+            print(packet)
+
+
+
+class ErlClient:
+    pass

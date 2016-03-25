@@ -38,11 +38,8 @@ class EPMDRequest:
     def encode(self):
         raw_packet = self.get_raw_data()
         packet_len = len(raw_packet)
-        return pack(
-            '>H' + '{pack_len}s'.format(pack_len=packet_len),
-            packet_len,
-            raw_packet
-        )
+        return pack('>H{pack_len}s'.format(pack_len=packet_len),
+                    packet_len, raw_packet)
 
     def get_raw_data(self):
         raise NotImplementedError("protected method _get_raw_data should be "
@@ -102,11 +99,8 @@ class Alive2Request(EPMDRequest):
         )
 
         if elen:
-            packet = pack_into(
-                '{elen}s'.format(elen=elen),
-                packet,
-                len(packet)
-            )
+            packet = pack_into('{elen}s'.format(elen=elen),
+                               packet, len(packet))
 
         return packet
 
@@ -115,7 +109,7 @@ class NamesRequest(EPMDRequest):
     ''' NAMES_REQ packet coder '''
 
     def get_raw_data(self):
-        return pack('B', 110)
+        return pack('B', NAMES_REQ)
 
 
 class PortRequest(EPMDRequest):
@@ -127,8 +121,5 @@ class PortRequest(EPMDRequest):
     def get_raw_data(self):
         node_name_encoded = self._nodename.encode()
         nlen = len(node_name_encoded)
-        return pack(
-            '>B{nlen}s'.format(nlen=nlen),
-            PORT_PLEASE_REQ,
-            node_name_encoded
-        )
+        return pack('>B{nlen}s'.format(nlen=nlen), PORT_PLEASE_REQ,
+                    node_name_encoded)

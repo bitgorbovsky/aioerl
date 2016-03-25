@@ -90,15 +90,13 @@ class PortResponse(EPMDresponse):
         else:
             extra = None
 
-        return cls(
-            port_no=port_no,
-            node_type=node_type,
-            protocol=protocol,
-            high_ver=high_ver,
-            low_ver=low_ver,
-            node_name=node_name,
-            extra=extra
-        )
+        return cls(port_no=port_no,
+                   node_type=node_type,
+                   protocol=protocol,
+                   high_ver=high_ver,
+                   low_ver=low_ver,
+                   node_name=node_name,
+                   extra=extra)
 
     def __repr__(self):
         return '{node} on {port}'.format(
@@ -124,3 +122,37 @@ class NamesResponse(EPMDresponse):
 
 class UnknownEPMDResponse(EPMDresponse):
     pass
+
+
+class DistributionRequest:
+
+    class FLAGS:
+        PUBLISHED = 1
+        ATOM_CACHE = 2
+        EXTENDED_REFERENCES = 4
+        DIST_MONITOR = 8
+        FUN_TAGS = 0x10
+        DIST_MONITOR_NAME = 0x20
+        HIDDEN_ATOM_CACHE = 0x40
+        NEW_FUN_TAGS = 0x80
+        EXTENDED_PIDS_PORTS = 0x100
+        EXPORT_PTR_TAG = 0x200
+        BIT_BINARIES = 0x400
+        NEW_FLOATS = 0x800
+        UNICODE_IO = 0x1000
+        DIST_HDR_ATOM_CACHE = 0x2000
+        SMALL_ATOM_TAGS = 0x4000
+        UTF8_ATOMS = 0x10000
+        MAP_TAG = 0x20000
+
+    def __init__(self, version, flags, node_name):
+        self.version = version
+        self.flags = flags
+        self.node_name = node_name
+
+    @classmethod
+    def decode(cls, packet):
+        fmt = '>HcHI'
+        size, tag, version, flags = unpack_from('>HcHI', packet)
+        node_name = packet[9:].decode()
+        return cls(version, flags, node_name)
