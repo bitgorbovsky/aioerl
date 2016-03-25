@@ -126,24 +126,6 @@ class UnknownEPMDResponse(EPMDresponse):
 
 class DistributionRequest:
 
-    class FLAGS:
-        PUBLISHED = 1
-        ATOM_CACHE = 2
-        EXTENDED_REFERENCES = 4
-        DIST_MONITOR = 8
-        FUN_TAGS = 0x10
-        DIST_MONITOR_NAME = 0x20
-        HIDDEN_ATOM_CACHE = 0x40
-        NEW_FUN_TAGS = 0x80
-        EXTENDED_PIDS_PORTS = 0x100
-        EXPORT_PTR_TAG = 0x200
-        BIT_BINARIES = 0x400
-        NEW_FLOATS = 0x800
-        UNICODE_IO = 0x1000
-        DIST_HDR_ATOM_CACHE = 0x2000
-        SMALL_ATOM_TAGS = 0x4000
-        UTF8_ATOMS = 0x10000
-        MAP_TAG = 0x20000
 
     def __init__(self, version, flags, node_name):
         self.version = version
@@ -152,7 +134,4 @@ class DistributionRequest:
 
     @classmethod
     def decode(cls, packet):
-        fmt = '>HcHI'
-        size, tag, version, flags = unpack_from('>HcHI', packet)
-        node_name = packet[9:].decode()
         return cls(version, flags, node_name)
