@@ -1,10 +1,10 @@
-# coding: utf-8
+''' epmd client module '''
 
 
 import asyncio
 import random
 import sys
-from struct import *
+from struct import unpack_from, pack, calcsize
 
 
 from request import (
@@ -103,6 +103,7 @@ class ErlServerProtocol(asyncio.Protocol):
         INIT = 0
         READY = 1
         WAIT_CHALLENGE = 2
+        WAIT_STATUS = 3
 
     class DISTRIBUTION_FLAGS:
         PUBLISHED = 1
@@ -128,33 +129,44 @@ class ErlServerProtocol(asyncio.Protocol):
         self.state = self.STATE.INIT
 
     def data_received(self, packet):
-        print(packet)
         if self.state == self.STATE.INIT:
-            size, tag, version, flags = unpack_from('>HcHI', packet)
-            node_name = packet[9:].decode()
+            header_format = '>HcHI'
+            size, tag, version, flags = unpack_from(header_format, packet)
+
+            node_name = packet[calcsize(header_format):].decode()
+
             self.challenge = random.randint(0, 4294967295)
-            node_name = 'tit@localhost'
+
+            node_name = 'bit@localhost'
+            challenge_packet_fmt = '>cHII{nlen}s'.format(nlen=len(node_name))
+            packet_length = calcsize(challenge_packet_fmt)
+
             challenge = pack(
-                '>HcHII{nlen}s'.format(nlen=len(node_name)),
-                len(node_name) + 13,  # packet header with length
-                b'n',                 # message tag 'n'
-                version,              # distribution version
-                flags,                # distribution flags
-                self.challenge,       # challenge
-                node_name.encode()    # node name
+                '>H{nlen}s'.format(nlen=packet_length),
+                packet_length,
+                pack(
+                    challenge_packet_fmt,
+                    b'n',                 # message tag 'n'
+                    version,              # distribution version
+                    flags,                # distribution flags
+                    self.challenge,       # challenge
+                    node_name.encode()    # node name
+                )
             )
+
+            status = b'ok'
             status = pack(
-                '>Hc{nlen}s'.format(nlen=3),
-                3,                    # packet header
-                b's',                 # message tag 's'
-                b'ok'                 # status
+                '>Hc{nlen}s'.format(nlen=len(status)),
+                len(status) + 1,
+                b's',
+                status
             )
             self.transport.write(status)
-            #self.transport.write(challenge)
+            self.transport.write(challenge)
+
             self.state = self.STATE.WAIT_CHALLENGE
         elif self.state == self.STATE.WAIT_CHALLENGE:
             print(packet)
-
 
 
 class ErlClient:
