@@ -5,6 +5,7 @@ import asyncio
 import random
 import sys
 from struct import unpack_from, pack, calcsize
+import hashlib
 
 
 from request import (
@@ -166,7 +167,18 @@ class ErlServerProtocol(asyncio.Protocol):
 
             self.state = self.STATE.WAIT_CHALLENGE
         elif self.state == self.STATE.WAIT_CHALLENGE:
-            print(packet)
+            header_fmt = '>HcI'
+            size, tag, challenge = unpack_from(
+                header_fmt,
+                packet
+            )
+            digest = packet[calcsize(header_fmt):]
+
+            hash_fn = hashlib.md5()
+            hash_fn.update(b'%s%s' % ('DMAHGNQKBFRQXOMHNSEB', challenge))
+            my_digest = hash_fn.digest()
+
+
 
 
 class ErlClient:
