@@ -23,10 +23,22 @@ from response import (
 )
 
 
-__all__ = ["EPMDClient", "NodeInfo", "ErlServerProtocol"]
+__all__ = ["EPMDClient", "NodeInfo", "ErlServerProtocol", 'gen_digest']
 
 
 random.seed()
+
+
+def gen_digest(*args, **kwargs):
+    hashfn = hashlib.md5()
+    hashfn.update(b''.join(
+        s if isinstance(s, bytes) else bytes(str(s), 'utf-8')
+        for s in args
+    ))
+    if kwargs.get('hex', False):
+        return hashfn.hexdigest()
+
+    return hashfn.digest()
 
 
 class EPMDClient:
@@ -98,6 +110,7 @@ class EPMDClient:
         return PortResponse.decode(data)
 
 
+# TODO: Implement class for FSM
 class ErlServerProtocol(asyncio.Protocol):
 
     class STATE:
@@ -125,61 +138,62 @@ class ErlServerProtocol(asyncio.Protocol):
         UTF8_ATOMS = 0x10000
         MAP_TAG = 0x20000
 
+    def __init__(self, *args, **kwargs):
+        super(ErlServerProtocol, self).__init__(*args, **kwargs)
+        self.node_name = 'bit@localhost'
+        self.cookie = 'DMAHGNQKBFRQXOMHNSEB'
+
     def connection_made(self, transport):
         self.transport = transport
         self.state = self.STATE.INIT
 
     def data_received(self, packet):
+        self.receive(packet[calcsize('>H'):])
+
+    def send(self, message):
+        packet = b''.join([pack('>H', len(message)), message])
+        self.transport.write(packet)
+
+    def receive(self, message):
         if self.state == self.STATE.INIT:
-            header_format = '>HcHI'
-            size, tag, version, flags = unpack_from(header_format, packet)
+            header = '>cHI'
 
-            node_name = packet[calcsize(header_format):].decode()
+            # TODO: check tag, version and flags
+            tag, version, flags = unpack_from(header, message)
+            node_name = message[calcsize(header):].decode()
 
-            self.challenge = random.randint(0, 4294967295)
+            challenge = random.randint(0, 4294967295)
 
-            node_name = 'bit@localhost'
-            challenge_packet_fmt = '>cHII{nlen}s'.format(nlen=len(node_name))
-            packet_length = calcsize(challenge_packet_fmt)
+            self.digest = gen_digest([self.cookie, challenge])
 
-            challenge = pack(
-                '>H{nlen}s'.format(nlen=packet_length),
-                packet_length,
+            challenge = b''.join([
                 pack(
-                    challenge_packet_fmt,
-                    b'n',                 # message tag 'n'
-                    version,              # distribution version
-                    flags,                # distribution flags
-                    self.challenge,       # challenge
-                    node_name.encode()    # node name
-                )
-            )
+                    '>cHII',    # message byte structure
+                    b'n',       # c: message tag 'n'
+                    version,    # H: distribution version
+                    flags,      # I: distribution flags
+                    challenge   # I: challenge
+                ),
+                self.node_name.encode()
+            ])
 
-            status = b'ok'
-            status = pack(
-                '>Hc{nlen}s'.format(nlen=len(status)),
-                len(status) + 1,
-                b's',
-                status
-            )
-            self.transport.write(status)
-            self.transport.write(challenge)
+            self.send(b'sok')   # status ok, 's' - message tag
+            self.send(challenge)
 
             self.state = self.STATE.WAIT_CHALLENGE
         elif self.state == self.STATE.WAIT_CHALLENGE:
-            header_fmt = '>HcI'
-            size, tag, challenge = unpack_from(
-                header_fmt,
-                packet
-            )
-            digest = packet[calcsize(header_fmt):]
+            header = '>cI'
 
-            hash_fn = hashlib.md5()
-            hash_fn.update(b'%s%s' % ('DMAHGNQKBFRQXOMHNSEB', challenge))
-            my_digest = hash_fn.digest()
+            tag, challenge = unpack_from(header, message)
+            digest = message[calcsize(header):]
 
+            my_digest = gen_digest([self.cookie, challenge])
 
+            ack = b''.join([
+                b'a',
+                gen_digest([self.cookie, challenge])
+            ])
 
+            self.send(ack)
 
-class ErlClient:
-    pass
+            print(self.digest == digest)
