@@ -164,7 +164,6 @@ class ErlServerProtocol(asyncio.Protocol):
             node_name = message[calcsize(header):].decode()
 
             challenge = random.randint(0, 4294967295)
-            challenge = 0
 
             self.digest = gen_digest(self.cookie, challenge)
 
