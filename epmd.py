@@ -118,6 +118,7 @@ class ErlServerProtocol(asyncio.Protocol):
         READY = 1
         WAIT_CHALLENGE = 2
         WAIT_STATUS = 3
+        WAIT_ACK = 4
 
     class DISTRIBUTION_FLAGS:
         PUBLISHED = 1
@@ -141,7 +142,7 @@ class ErlServerProtocol(asyncio.Protocol):
     def __init__(self, *args, **kwargs):
         super(ErlServerProtocol, self).__init__(*args, **kwargs)
         self.node_name = 'bit@localhost'
-        self.cookie = 'DMAHGNQKBFRQXOMHNSEB'
+        self.cookie = 'ONJNAFDLJCQIKHHWYWVV'
 
     def connection_made(self, transport):
         self.transport = transport
@@ -163,16 +164,17 @@ class ErlServerProtocol(asyncio.Protocol):
             node_name = message[calcsize(header):].decode()
 
             challenge = random.randint(0, 4294967295)
+            challenge = 0
 
-            self.digest = gen_digest([self.cookie, challenge])
+            self.digest = gen_digest(self.cookie, challenge)
 
             challenge = b''.join([
                 pack(
                     '>cHII',    # message byte structure
-                    b'n',       # c: message tag 'n'
-                    version,    # H: distribution version
-                    flags,      # I: distribution flags
-                    challenge   # I: challenge
+                    b'n',       # c: message tag 'n', 1 byte
+                    version,    # H: distribution version, 2 bytes
+                    flags,      # I: distribution flags, 4 bytes
+                    challenge   # I: challenge, 4 bytes
                 ),
                 self.node_name.encode()
             ])
@@ -181,19 +183,23 @@ class ErlServerProtocol(asyncio.Protocol):
             self.send(challenge)
 
             self.state = self.STATE.WAIT_CHALLENGE
+
         elif self.state == self.STATE.WAIT_CHALLENGE:
             header = '>cI'
 
             tag, challenge = unpack_from(header, message)
             digest = message[calcsize(header):]
 
-            my_digest = gen_digest([self.cookie, challenge])
-
             ack = b''.join([
                 b'a',
-                gen_digest([self.cookie, challenge])
+                gen_digest(self.cookie, challenge)
             ])
 
-            self.send(ack)
+            if self.digest == digest:
+                self.send(ack)
+                self.state = self.STATE.WAIT_ACK
+            else:
+                self.transport.close()
 
-            print(self.digest == digest)
+        elif self.state == self.STATE.WAIT_ACK:
+            print(message)
