@@ -110,7 +110,6 @@ class EPMDClient:
         return PortResponse.decode(data)
 
 
-# TODO: Implement class for FSM
 class ErlServerProtocol(asyncio.Protocol):
 
     class STATE:
@@ -147,58 +146,60 @@ class ErlServerProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         self.transport = transport
         self.state = self.STATE.INIT
+        self.__current_waiting = self.__recv_name
 
     def data_received(self, packet):
-        self.receive(packet[calcsize('>H'):])
+        message = packet[calcsize('>H'):]
+        to_send, next_waiting = self.__current_waiting(message)
+        for chunk in to_send:
+            self.send(chunk)
+
+        self.__current_waiting = next_waiting
 
     def send(self, message):
         packet = b''.join([pack('>H', len(message)), message])
         self.transport.write(packet)
 
-    def receive(self, message):
-        if self.state == self.STATE.INIT:
-            header = '>cHI'
+    def __recv_name(self, message):
+        header = '>cHI'
 
-            # TODO: check tag, version and flags
-            tag, version, flags = unpack_from(header, message)
-            node_name = message[calcsize(header):].decode()
+        # TODO: check tag, version and flags
+        tag, version, flags = unpack_from(header, message)
+        node_name = message[calcsize(header):].decode()
 
-            challenge = random.randint(0, 4294967295)
+        challenge = random.randint(0, 4294967295)
 
-            self.digest = gen_digest(self.cookie, challenge)
+        self.digest = gen_digest(self.cookie, challenge)
 
-            challenge = b''.join([
-                pack(
-                    '>cHII',    # message byte structure
-                    b'n',       # c: message tag 'n', 1 byte
-                    version,    # H: distribution version, 2 bytes
-                    flags,      # I: distribution flags, 4 bytes
-                    challenge   # I: challenge, 4 bytes
-                ),
-                self.node_name.encode()
-            ])
+        challenge = b''.join([
+            pack(
+                '>cHII',    # message byte structure
+                b'n',       # c: message tag 'n', 1 byte
+                version,    # H: distribution version, 2 bytes
+                flags,      # I: distribution flags, 4 bytes
+                challenge   # I: challenge, 4 bytes
+            ),
+            self.node_name.encode()
+        ])
 
-            self.send(b'sok')   # status ok, 's' - message tag
-            self.send(challenge)
+        return [b'sok', challenge], self.__recv_challenge
 
-            self.state = self.STATE.WAIT_CHALLENGE
+    def __recv_challenge(self, message):
+        header = '>cI'
 
-        elif self.state == self.STATE.WAIT_CHALLENGE:
-            header = '>cI'
+        tag, challenge = unpack_from(header, message)
+        digest = message[calcsize(header):]
 
-            tag, challenge = unpack_from(header, message)
-            digest = message[calcsize(header):]
+        ack = b''.join([
+            b'a',
+            gen_digest(self.cookie, challenge)
+        ])
 
-            ack = b''.join([
-                b'a',
-                gen_digest(self.cookie, challenge)
-            ])
+        if self.digest == digest:
+            return [ack], self.__wait_ack
 
-            if self.digest == digest:
-                self.send(ack)
-                self.state = self.STATE.WAIT_ACK
-            else:
-                self.transport.close()
+        self.transport.close()
 
-        elif self.state == self.STATE.WAIT_ACK:
-            print(message)
+    def __wait_ack(self, message):
+        print(message)
+        return [], self.__wait_ack
