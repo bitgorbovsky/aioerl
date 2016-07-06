@@ -8,7 +8,7 @@ from epmd import *
 loop = asyncio.get_event_loop()
 client = EPMDClient('localhost', 4369, loop)
 
-server = loop.create_server(ErlServerProtocol, '127.0.0.1', 7171)
+server = loop.create_server(lambda: NodeProtocol('bit@localhost', 'ONJNAFDLJCQIKHHWYWVV'), '127.0.0.1', 7171)
 
 loop.run_until_complete(server)
 

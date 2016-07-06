@@ -23,10 +23,14 @@ from response import (
 )
 
 
-__all__ = ["EPMDClient", "NodeInfo", "ErlServerProtocol", 'gen_digest']
+__all__ = ["EPMDClient", "NodeInfo", "NodeProtocol", 'gen_digest']
 
 
 random.seed()
+
+
+class UnexpectedTag(Exception):
+    pass
 
 
 def gen_digest(*args, **kwargs):
@@ -39,6 +43,27 @@ def gen_digest(*args, **kwargs):
         return hashfn.hexdigest()
 
     return hashfn.digest()
+
+
+def expect(expected_tag, format_spec=None):
+    def wrapper(f):
+        def method(self, message):
+            tag, *message = message
+            message = bytes(message)
+
+            if expected_tag != chr(tag):
+                raise UnexpectedTag(chr(tag))
+
+            if format_spec:
+                offset = calcsize(format_spec)
+                unpacked = unpack_from(format_spec, message)
+                tail = message[offset:]
+
+                return f(self, *(unpacked + (tail, )))
+
+            return f(self, message)
+        return method
+    return wrapper
 
 
 class EPMDClient:
@@ -110,42 +135,33 @@ class EPMDClient:
         return PortResponse.decode(data)
 
 
-class ErlServerProtocol(asyncio.Protocol):
+DF_PUBLISHED = 1
+DF_ATOM_CACHE = 2
+DF_EXTENDED_REFERENCES = 4
+DF_DIST_MONITOR = 8
+DF_FUN_TAGS = 0x10
+DF_DIST_MONITOR_NAME = 0x20
+DF_HIDDEN_ATOM_CACHE = 0x40
+DF_NEW_FUN_TAGS = 0x80
+DF_EXTENDED_PIDS_PORTS = 0x100
+DF_EXPORT_PTR_TAG = 0x200
+DF_BIT_BINARIES = 0x400
+DF_NEW_FLOATS = 0x800
+DF_UNICODE_IO = 0x1000
+DF_DIST_HDR_ATOM_CACHE = 0x2000
+DF_SMALL_ATOM_TAGS = 0x4000
+DF_UTF8_ATOMS = 0x10000
+DF_MAP_TAG = 0x20000
 
-    class STATE:
-        INIT = 0
-        READY = 1
-        WAIT_CHALLENGE = 2
-        WAIT_STATUS = 3
-        WAIT_ACK = 4
 
-    class DISTRIBUTION_FLAGS:
-        PUBLISHED = 1
-        ATOM_CACHE = 2
-        EXTENDED_REFERENCES = 4
-        DIST_MONITOR = 8
-        FUN_TAGS = 0x10
-        DIST_MONITOR_NAME = 0x20
-        HIDDEN_ATOM_CACHE = 0x40
-        NEW_FUN_TAGS = 0x80
-        EXTENDED_PIDS_PORTS = 0x100
-        EXPORT_PTR_TAG = 0x200
-        BIT_BINARIES = 0x400
-        NEW_FLOATS = 0x800
-        UNICODE_IO = 0x1000
-        DIST_HDR_ATOM_CACHE = 0x2000
-        SMALL_ATOM_TAGS = 0x4000
-        UTF8_ATOMS = 0x10000
-        MAP_TAG = 0x20000
+class NodeProtocol(asyncio.Protocol):
 
-    def __init__(self, *args, **kwargs):
-        super(ErlServerProtocol, self).__init__(*args, **kwargs)
-        self.node_name = 'bit@localhost'
-        self.cookie = 'ONJNAFDLJCQIKHHWYWVV'
+    def __init__(self, node_name, cookie):
+        self.node_name = node_name
+        self.cookie = cookie
 
     def connection_made(self, transport):
         self.transport = transport
-        self.state = self.STATE.INIT
         self.__current_waiting = self.__recv_name
 
     def data_received(self, packet):
@@ -160,15 +176,29 @@ class ErlServerProtocol(asyncio.Protocol):
         packet = b''.join([pack('>H', len(message)), message])
         self.transport.write(packet)
 
-    def __recv_name(self, message):
-        header = '>cHI'
+    @expect('s')
+    def __recv_status(self, message):
+        status = message.decode()
 
-        # TODO: check tag, version and flags
-        tag, version, flags = unpack_from(header, message)
-        node_name = message[calcsize(header):].decode()
+        if status in ['ok', 'ok_simultaneous']:
+            challenge = gen_challenge()
+            return [challenge], self.__recv_challenge_reply
 
+        if status == 'nok':
+            self.transport.close()
+            return
+
+        if status == 'not_allowed':
+            self.transport.close()
+            return
+
+        if status == 'alive':
+            return [], self.__wait_ack
+
+    @expect('n', '>HI')
+    def __recv_name(self, version, flags, node_name):
+        node_name = node_name.decode()
         challenge = random.randint(0, 4294967295)
-
         self.digest = gen_digest(self.cookie, challenge)
 
         challenge = b''.join([
@@ -184,12 +214,8 @@ class ErlServerProtocol(asyncio.Protocol):
 
         return [b'sok', challenge], self.__recv_challenge
 
-    def __recv_challenge(self, message):
-        header = '>cI'
-
-        tag, challenge = unpack_from(header, message)
-        digest = message[calcsize(header):]
-
+    @expect('r', '>I')
+    def __recv_challenge(self, challenge, digest):
         ack = b''.join([
             b'a',
             gen_digest(self.cookie, challenge)
@@ -199,6 +225,9 @@ class ErlServerProtocol(asyncio.Protocol):
             return [ack], self.__wait_ack
 
         self.transport.close()
+
+    def __recv_messages(self, message):
+        pass
 
     def __wait_ack(self, message):
         print(message)
