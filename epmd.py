@@ -2,11 +2,6 @@
 
 
 import asyncio
-import random
-import sys
-from struct import unpack_from, pack, calcsize
-import hashlib
-
 
 from request import (
     Alive2Request,
@@ -22,48 +17,10 @@ from response import (
     NodeInfo
 )
 
-
-__all__ = ["EPMDClient", "NodeInfo", "NodeProtocol", 'gen_digest']
-
-
-random.seed()
+from protocols import HandshakeProtocol
 
 
-class UnexpectedTag(Exception):
-    pass
-
-
-def gen_digest(*args, **kwargs):
-    hashfn = hashlib.md5()
-    hashfn.update(b''.join(
-        s if isinstance(s, bytes) else bytes(str(s), 'utf-8')
-        for s in args
-    ))
-    if kwargs.get('hex', False):
-        return hashfn.hexdigest()
-
-    return hashfn.digest()
-
-
-def expect(expected_tag, format_spec=None):
-    def wrapper(f):
-        def method(self, message):
-            tag, *message = message
-            message = bytes(message)
-
-            if expected_tag != chr(tag):
-                raise UnexpectedTag(chr(tag))
-
-            if format_spec:
-                offset = calcsize(format_spec)
-                unpacked = unpack_from(format_spec, message)
-                tail = message[offset:]
-
-                return f(self, *(unpacked + (tail, )))
-
-            return f(self, message)
-        return method
-    return wrapper
+__all__ = ["EPMDClient", "NodeInfo", "NodeProtocol"]
 
 
 class EPMDClient:
@@ -135,100 +92,22 @@ class EPMDClient:
         return PortResponse.decode(data)
 
 
-DF_PUBLISHED = 1
-DF_ATOM_CACHE = 2
-DF_EXTENDED_REFERENCES = 4
-DF_DIST_MONITOR = 8
-DF_FUN_TAGS = 0x10
-DF_DIST_MONITOR_NAME = 0x20
-DF_HIDDEN_ATOM_CACHE = 0x40
-DF_NEW_FUN_TAGS = 0x80
-DF_EXTENDED_PIDS_PORTS = 0x100
-DF_EXPORT_PTR_TAG = 0x200
-DF_BIT_BINARIES = 0x400
-DF_NEW_FLOATS = 0x800
-DF_UNICODE_IO = 0x1000
-DF_DIST_HDR_ATOM_CACHE = 0x2000
-DF_SMALL_ATOM_TAGS = 0x4000
-DF_UTF8_ATOMS = 0x10000
-DF_MAP_TAG = 0x20000
-
-
 class NodeProtocol(asyncio.Protocol):
 
     def __init__(self, node_name, cookie):
         self.node_name = node_name
         self.cookie = cookie
+        self.protocol = None
 
     def connection_made(self, transport):
+        self.protocol = HandshakeProtocol(
+            transport,
+            self.node_name,
+            self.cookie
+        )
         self.transport = transport
-        self.__current_waiting = self.__recv_name
 
     def data_received(self, packet):
-        message = packet[calcsize('>H'):]
-        to_send, next_waiting = self.__current_waiting(message)
-        for chunk in to_send:
-            self.send(chunk)
-
-        self.__current_waiting = next_waiting
-
-    def send(self, message):
-        packet = b''.join([pack('>H', len(message)), message])
-        self.transport.write(packet)
-
-    @expect('s')
-    def __recv_status(self, message):
-        status = message.decode()
-
-        if status in ['ok', 'ok_simultaneous']:
-            challenge = gen_challenge()
-            return [challenge], self.__recv_challenge_reply
-
-        if status == 'nok':
-            self.transport.close()
-            return
-
-        if status == 'not_allowed':
-            self.transport.close()
-            return
-
-        if status == 'alive':
-            return [], self.__wait_ack
-
-    @expect('n', '>HI')
-    def __recv_name(self, version, flags, node_name):
-        node_name = node_name.decode()
-        challenge = random.randint(0, 4294967295)
-        self.digest = gen_digest(self.cookie, challenge)
-
-        challenge = b''.join([
-            pack(
-                '>cHII',    # message byte structure
-                b'n',       # c: message tag 'n', 1 byte
-                version,    # H: distribution version, 2 bytes
-                flags,      # I: distribution flags, 4 bytes
-                challenge   # I: challenge, 4 bytes
-            ),
-            self.node_name.encode()
-        ])
-
-        return [b'sok', challenge], self.__recv_challenge
-
-    @expect('r', '>I')
-    def __recv_challenge(self, challenge, digest):
-        ack = b''.join([
-            b'a',
-            gen_digest(self.cookie, challenge)
-        ])
-
-        if self.digest == digest:
-            return [ack], self.__wait_ack
-
-        self.transport.close()
-
-    def __recv_messages(self, message):
-        pass
-
-    def __wait_ack(self, message):
-        print(message)
-        return [], self.__wait_ack
+        result = self.protocol.accept_packet(packet)
+        if result:
+            self.protocol = result
